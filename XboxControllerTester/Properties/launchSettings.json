@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "XboxControllerTester": {
+      "commandName": "MsixPackage"
+    }
+  }
+}
