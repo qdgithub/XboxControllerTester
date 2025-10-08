@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -159,6 +160,7 @@ namespace XboxControllerTester
         private DeviceWatcher? _watch05, _watch06;
         private readonly HashSet<string> _hid05JellingIds = new();
         private readonly HashSet<string> _hid06DurhamIds = new();
+        private readonly HashSet<string> _hid06AsJelling = new();
         private readonly object _hidCacheLock = new();
         private readonly SemaphoreSlim _classifyLock = new(1, 1);
 
@@ -167,6 +169,16 @@ namespace XboxControllerTester
         private DateTimeOffset _lastSeenRawDurham = DateTimeOffset.MinValue;
         private static readonly TimeSpan PRESENT_HOLD_05 = TimeSpan.FromMilliseconds(1200);
         private static readonly TimeSpan PRESENT_HOLD_06 = TimeSpan.FromMilliseconds(800);
+        private const ushort XBOX_VENDOR_ID = 0x045E;
+        private static readonly HashSet<ushort> KnownDurhamPids = new()
+        {
+            0x0B02, // Elite Series 2 USB
+            0x0B05, // Elite Series 2 BLE
+            0x0B0A, // Elite Series 2 Core USB
+            0x0B12, // Elite Series 2 Core BLE (alt revision)
+            0x0B13, // Elite Series 2 Core BLE (newer)
+            0x0B20  // Future Elite revisions
+        };
 
         // ====== Layout ======
         private readonly (string leftLabel, string rightLabel, string leftKey, string rightKey)[] layout =
@@ -381,7 +393,8 @@ namespace XboxControllerTester
         }
         private void RawGameController_Added(object? sender, RawGameController e)
         { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham); } }
-        private void RawGameController_Removed(object? sender, RawGameController e) { }
+        private void RawGameController_Removed(object? sender, RawGameController e)
+        { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.MinValue; TryPublish(ProductType.Unknown); } }
 
         // ===== Reset counts =====
         private void ResetCounts_Click(object? sender, RoutedEventArgs e) => DoResetCounts();
@@ -454,16 +467,69 @@ namespace XboxControllerTester
             finally { _watch05 = null; _watch06 = null; }
         }
 
+        private static bool TryGetVidPid(string id, out ushort vid, out ushort pid)
+        {
+            vid = 0; pid = 0;
+            if (string.IsNullOrEmpty(id)) return false;
+
+            bool vidOk = false, pidOk = false;
+
+            int vidIdx = id.IndexOf("VID_", StringComparison.OrdinalIgnoreCase);
+            if (vidIdx >= 0 && vidIdx + 8 <= id.Length)
+            {
+                string hex = id.Substring(vidIdx + 4, 4);
+                vidOk = ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out vid);
+            }
+
+            int pidIdx = id.IndexOf("PID_", StringComparison.OrdinalIgnoreCase);
+            if (pidIdx >= 0 && pidIdx + 8 <= id.Length)
+            {
+                string hex = id.Substring(pidIdx + 4, 4);
+                pidOk = ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out pid);
+            }
+
+            return vidOk && pidOk;
+        }
+
         private static bool LooksLikeXboxHid(DeviceInformation di)
         {
             if (di == null) return false;
 
-            string id = di.Id ?? string.Empty;
-            if (id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
+            if (TryGetVidPid(di.Id ?? string.Empty, out ushort vid, out _))
+                if (vid == XBOX_VENDOR_ID) return true;
 
             string name = di.Name ?? string.Empty;
             return name.IndexOf("Xbox", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private bool LooksLikeDurhamDevice(DeviceInformation di)
+        {
+            if (di == null) return false;
+
+            string name = di.Name ?? string.Empty;
+            if (name.IndexOf("Elite", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            if (!TryGetVidPid(di.Id ?? string.Empty, out ushort vid, out ushort pid))
+                return false;
+
+            if (vid != XBOX_VENDOR_ID)
+                return false;
+
+            if (KnownDurhamPids.Contains(pid))
+                return true;
+
+            try
+            {
+                foreach (var rgc in RawGameController.RawGameControllers)
+                {
+                    if (rgc.HardwareVendorId == vid && rgc.HardwareProductId == pid && IsDurhamRaw(rgc))
+                        return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         private void Watch05_Added(DeviceWatcher s, DeviceInformation di)
@@ -475,6 +541,7 @@ namespace XboxControllerTester
 
             lock (_hidCacheLock)
             {
+                _hid06AsJelling.Remove(id);
                 _hid05JellingIds.Add(id);
                 _lastSeen05 = DateTimeOffset.Now;
             }
@@ -483,7 +550,11 @@ namespace XboxControllerTester
         private void Watch05_Removed(DeviceWatcher s, DeviceInformationUpdate up)
         {
             lock (_hidCacheLock)
-            { _hid05JellingIds.Remove(up.Id); if (_hid05JellingIds.Count == 0) _lastSeen05 = DateTimeOffset.MinValue; }
+            {
+                if (_hid05JellingIds.Remove(up.Id) && _hid05JellingIds.Count == 0)
+                    _lastSeen05 = DateTimeOffset.MinValue;
+                _hid06AsJelling.Remove(up.Id);
+            }
             TryPublish(ProductType.Unknown);
         }
         private void Watch06_Added(DeviceWatcher s, DeviceInformation di)
@@ -493,18 +564,45 @@ namespace XboxControllerTester
             var id = di.Id;
             if (string.IsNullOrEmpty(id)) return;
 
+            bool isDurham = LooksLikeDurhamDevice(di);
+
             lock (_hidCacheLock)
             {
-                _hid06DurhamIds.Add(id);
-                _lastSeen06 = DateTimeOffset.Now;
+                if (isDurham)
+                {
+                    _hid06AsJelling.Remove(id);
+                    _hid06DurhamIds.Add(id);
+                    _lastSeen06 = DateTimeOffset.Now;
+                }
+                else
+                {
+                    _hid06AsJelling.Add(id);
+                    _hid05JellingIds.Add(id);
+                    _lastSeen05 = DateTimeOffset.Now;
+                }
             }
-            _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
-            TryPublish(ProductType.Durham);
+            if (isDurham)
+            {
+                _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
+                TryPublish(ProductType.Durham);
+            }
+            else
+            {
+                TryPublish(ProductType.Jelling);
+            }
         }
         private void Watch06_Removed(DeviceWatcher s, DeviceInformationUpdate up)
         {
             lock (_hidCacheLock)
-            { _hid06DurhamIds.Remove(up.Id); if (_hid06DurhamIds.Count == 0) _lastSeen06 = DateTimeOffset.MinValue; }
+            {
+                if (_hid06DurhamIds.Remove(up.Id) && _hid06DurhamIds.Count == 0)
+                    _lastSeen06 = DateTimeOffset.MinValue;
+                if (_hid06AsJelling.Remove(up.Id))
+                {
+                    if (_hid05JellingIds.Remove(up.Id) && _hid05JellingIds.Count == 0)
+                        _lastSeen05 = DateTimeOffset.MinValue;
+                }
+            }
             TryPublish(ProductType.Unknown);
         }
 
@@ -519,9 +617,10 @@ namespace XboxControllerTester
             var now = DateTimeOffset.Now;
             bool has05 = (now - _lastSeen05) <= PRESENT_HOLD_05 && _hid05JellingIds.Count > 0;
             bool has06 = (now - _lastSeen06) <= PRESENT_HOLD_06 && _hid06DurhamIds.Count > 0;
+            bool hasRawDurham = (now - _lastSeenRawDurham) <= PRESENT_HOLD_06;
 
-            if (!has05 && !has06) proposal = ProductType.Unknown;
-            else if (has06) proposal = ProductType.Durham;
+            if (!has05 && !has06 && !hasRawDurham) proposal = ProductType.Unknown;
+            else if (has06 || hasRawDurham) proposal = ProductType.Durham;
             else if (has05) proposal = ProductType.Jelling;
 
             if (_candType != proposal)
@@ -560,13 +659,32 @@ namespace XboxControllerTester
                     var id = info.Id;
                     if (string.IsNullOrEmpty(id)) continue;
 
+                    bool isDurham = LooksLikeDurhamDevice(info);
+
                     lock (_hidCacheLock)
                     {
-                        _hid06DurhamIds.Add(id);
-                        _lastSeen06 = DateTimeOffset.Now;
+                        if (isDurham)
+                        {
+                            _hid06AsJelling.Remove(id);
+                            _hid06DurhamIds.Add(id);
+                            _lastSeen06 = DateTimeOffset.Now;
+                        }
+                        else
+                        {
+                            _hid06AsJelling.Add(id);
+                            _hid05JellingIds.Add(id);
+                            _lastSeen05 = DateTimeOffset.Now;
+                        }
                     }
-                    _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
-                    TryPublish(ProductType.Durham);
+                    if (isDurham)
+                    {
+                        _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
+                        TryPublish(ProductType.Durham);
+                    }
+                    else
+                    {
+                        TryPublish(ProductType.Jelling);
+                    }
                     return;
                 }
 
@@ -581,6 +699,7 @@ namespace XboxControllerTester
 
                     lock (_hidCacheLock)
                     {
+                        _hid06AsJelling.Remove(id);
                         _hid05JellingIds.Add(id);
                         _lastSeen05 = DateTimeOffset.Now;
                     }
@@ -596,8 +715,11 @@ namespace XboxControllerTester
         private void ForceUnknownUi()
         {
             _productType = ProductType.Unknown;
-            _hid05JellingIds.Clear(); _hid06DurhamIds.Clear();
+            _hid05JellingIds.Clear();
+            _hid06DurhamIds.Clear();
+            _hid06AsJelling.Clear();
             _lastSeen05 = _lastSeen06 = DateTimeOffset.MinValue;
+            _lastSeenRawDurham = DateTimeOffset.MinValue;
 
             _ = RunOnUiAsync(() =>
             {
