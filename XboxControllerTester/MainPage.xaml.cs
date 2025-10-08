@@ -454,11 +454,31 @@ namespace XboxControllerTester
             finally { _watch05 = null; _watch06 = null; }
         }
 
+        private static bool LooksLikeXboxHid(DeviceInformation di)
+        {
+            if (di == null) return false;
+
+            string id = di.Id ?? string.Empty;
+            if (id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            string name = di.Name ?? string.Empty;
+            return name.IndexOf("Xbox", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private void Watch05_Added(DeviceWatcher s, DeviceInformation di)
         {
-            if (di.Id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                di.Id.IndexOf("PID_02FF", StringComparison.OrdinalIgnoreCase) >= 0)
-            { lock (_hidCacheLock) { _hid05JellingIds.Add(di.Id); _lastSeen05 = DateTimeOffset.Now; } TryPublish(ProductType.Jelling); }
+            if (!LooksLikeXboxHid(di)) return;
+
+            var id = di.Id;
+            if (string.IsNullOrEmpty(id)) return;
+
+            lock (_hidCacheLock)
+            {
+                _hid05JellingIds.Add(id);
+                _lastSeen05 = DateTimeOffset.Now;
+            }
+            TryPublish(ProductType.Jelling);
         }
         private void Watch05_Removed(DeviceWatcher s, DeviceInformationUpdate up)
         {
@@ -468,9 +488,18 @@ namespace XboxControllerTester
         }
         private void Watch06_Added(DeviceWatcher s, DeviceInformation di)
         {
-            if (di.Id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                di.Id.IndexOf("PID_0B02", StringComparison.OrdinalIgnoreCase) >= 0)
-            { lock (_hidCacheLock) { _hid06DurhamIds.Add(di.Id); _lastSeen06 = DateTimeOffset.Now; } _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD; TryPublish(ProductType.Durham); }
+            if (!LooksLikeXboxHid(di)) return;
+
+            var id = di.Id;
+            if (string.IsNullOrEmpty(id)) return;
+
+            lock (_hidCacheLock)
+            {
+                _hid06DurhamIds.Add(id);
+                _lastSeen06 = DateTimeOffset.Now;
+            }
+            _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
+            TryPublish(ProductType.Durham);
         }
         private void Watch06_Removed(DeviceWatcher s, DeviceInformationUpdate up)
         {
@@ -525,19 +554,38 @@ namespace XboxControllerTester
                 var d6 = await DeviceInformation.FindAllAsync(_hidSelector06);
                 for (int i = 0; i < d6.Count; i++)
                 {
-                    var id = d6[i].Id;
-                    if (id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                        id.IndexOf("PID_0B02", StringComparison.OrdinalIgnoreCase) >= 0)
-                    { lock (_hidCacheLock) { _hid06DurhamIds.Add(id); _lastSeen06 = DateTimeOffset.Now; } TryPublish(ProductType.Durham); return; }
+                    var info = d6[i];
+                    if (!LooksLikeXboxHid(info)) continue;
+
+                    var id = info.Id;
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    lock (_hidCacheLock)
+                    {
+                        _hid06DurhamIds.Add(id);
+                        _lastSeen06 = DateTimeOffset.Now;
+                    }
+                    _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
+                    TryPublish(ProductType.Durham);
+                    return;
                 }
 
                 var d5 = await DeviceInformation.FindAllAsync(_hidSelector05);
                 for (int i = 0; i < d5.Count; i++)
                 {
-                    var id = d5[i].Id;
-                    if (id.IndexOf("VID_045E", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                        id.IndexOf("PID_02FF", StringComparison.OrdinalIgnoreCase) >= 0)
-                    { lock (_hidCacheLock) { _hid05JellingIds.Add(id); _lastSeen05 = DateTimeOffset.Now; } TryPublish(ProductType.Jelling); return; }
+                    var info = d5[i];
+                    if (!LooksLikeXboxHid(info)) continue;
+
+                    var id = info.Id;
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    lock (_hidCacheLock)
+                    {
+                        _hid05JellingIds.Add(id);
+                        _lastSeen05 = DateTimeOffset.Now;
+                    }
+                    TryPublish(ProductType.Jelling);
+                    return;
                 }
             }
             catch { }
