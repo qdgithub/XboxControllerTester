@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Core;
 using Windows.Gaming.Input;
 using Windows.UI;
 using Windows.UI.Core;
@@ -271,14 +272,35 @@ namespace XboxControllerTester
         // ===== Helper chạy UI an toàn (fix COMException) =====
         private static async Task RunOnUiAsync(DispatchedHandler action)
         {
-            var d = Window.Current?.Dispatcher;
-            if (d == null) { try { action(); } catch { } return; }
-            if (d.HasThreadAccess) { try { action(); } catch { } }
-            else
+            static async Task<bool> TryDispatchAsync(CoreDispatcher? dispatcher, DispatchedHandler handler)
             {
-                try { await d.RunAsync(CoreDispatcherPriority.Normal, action); }
-                catch { /* ignore */ }
+                if (dispatcher == null) return false;
+
+                if (dispatcher.HasThreadAccess)
+                {
+                    try { handler(); }
+                    catch { }
+                    return true;
+                }
+
+                try
+                {
+                    await dispatcher.RunAsync(CoreDispatcherPriority.Normal, handler);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
             }
+
+            if (await TryDispatchAsync(Window.Current?.Dispatcher, action)) return;
+
+            var mainView = CoreApplication.MainView;
+            if (mainView != null && await TryDispatchAsync(mainView.CoreWindow?.Dispatcher, action)) return;
+
+            try { action(); }
+            catch { }
         }
 
         // ===== Focus shield for toolbar =====
