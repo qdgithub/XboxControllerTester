@@ -347,21 +347,21 @@ namespace XboxControllerTester
             Patch(TopBar.PrimaryCommands);
             Patch(TopBar.SecondaryCommands);
         }
-        private void ToolbarItem_GettingFocus(object sender, GettingFocusEventArgs e)
+        private void ToolbarItem_GettingFocus(object? sender, GettingFocusEventArgs e)
         { if (e.InputDevice == FocusInputDeviceKind.GameController) e.Cancel = true; }
-        private void TopBar_GettingFocus(object sender, GettingFocusEventArgs e)
+        private void TopBar_GettingFocus(object? sender, GettingFocusEventArgs e)
         { if (e.InputDevice == FocusInputDeviceKind.GameController) e.Cancel = true; }
-        private void BtnReset_GettingFocus(object sender, GettingFocusEventArgs e)
+        private void BtnReset_GettingFocus(object? sender, GettingFocusEventArgs e)
         { if (e.InputDevice == FocusInputDeviceKind.GameController) e.Cancel = true; }
 
         // ===== Page lifecycle =====
-        private void Page_Loaded(object sender, RoutedEventArgs e)
+        private void Page_Loaded(object? sender, RoutedEventArgs e)
         {
             pollTimer.Start();
             fastTimer16 = ThreadPoolTimer.CreatePeriodicTimer(FastTimer_Tick, TimeSpan.FromMilliseconds(16));
             _lastUiTick = DateTimeOffset.Now;
         }
-        private void Page_Unloaded(object sender, RoutedEventArgs e)
+        private void Page_Unloaded(object? sender, RoutedEventArgs e)
         {
             pollTimer.Stop();
             try { fastTimer16?.Cancel(); } catch { }
@@ -373,18 +373,18 @@ namespace XboxControllerTester
         }
 
         // ===== Gamepad/Raw events =====
-        private void Gamepad_GamepadAdded(object sender, Gamepad e) => RefreshDevices();
-        private void Gamepad_GamepadRemoved(object sender, Gamepad e)
+        private void Gamepad_GamepadAdded(object? sender, Gamepad e) => RefreshDevices();
+        private void Gamepad_GamepadRemoved(object? sender, Gamepad e)
         {
             if (e == currentGamepad) { StopRumble(); currentGamepad = null; }
             ForceUnknownUi();
         }
-        private void RawGameController_Added(object sender, RawGameController e)
+        private void RawGameController_Added(object? sender, RawGameController e)
         { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham); } }
-        private void RawGameController_Removed(object sender, RawGameController e) { }
+        private void RawGameController_Removed(object? sender, RawGameController e) { }
 
         // ===== Reset counts =====
-        private void ResetCounts_Click(object sender, RoutedEventArgs e) => DoResetCounts();
+        private void ResetCounts_Click(object? sender, RoutedEventArgs e) => DoResetCounts();
         private void DoResetCounts()
         {
             var keys = new List<string>(buttonPressCount.Keys);
@@ -653,7 +653,7 @@ namespace XboxControllerTester
 
         // ===== 33ms UI loop =====
         private bool _isPolling = false;
-        private void PollTimer_Tick(object sender, object e)
+        private void PollTimer_Tick(object? sender, object e)
         {
             if (_isPolling) return; _isPolling = true;
             try
