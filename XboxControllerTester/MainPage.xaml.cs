@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Gaming.Input;
+using Windows.Gaming.Input.Custom;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Composition;
@@ -152,9 +153,20 @@ namespace XboxControllerTester
         private bool _gateArmed = false;
         private int _microRecheckSeq = 0;
 
+        private ProductType _providerHint = ProductType.Unknown;
+        private DateTimeOffset _providerHintAt = DateTimeOffset.MinValue;
+        private static readonly TimeSpan PROVIDER_EVIDENCE_HOLD = TimeSpan.FromMilliseconds(8000);
+
         // ====== HID selectors ======
         private static readonly string _hidSelector05 = HidDevice.GetDeviceSelector(0x01, 0x05);
         private static readonly string _hidSelector06 = HidDevice.GetDeviceSelector(0x01, 0x06);
+        private static readonly string[] _hidAdditionalProperties = new[]
+        {
+            "System.Devices.DeviceInstanceId",
+            "System.Devices.HardwareIds",
+            "System.ItemNameDisplay",
+            "System.Devices.Aep.ModelId"
+        };
 
         // ====== Watchers & caches ======
         private DeviceWatcher? _watch05, _watch06;
@@ -172,12 +184,32 @@ namespace XboxControllerTester
         private const ushort XBOX_VENDOR_ID = 0x045E;
         private static readonly HashSet<ushort> KnownDurhamPids = new()
         {
-            0x0B02, // Elite Series 2 USB
-            0x0B05, // Elite Series 2 BLE
-            0x0B0A, // Elite Series 2 Core USB
-            0x0B12, // Elite Series 2 Core BLE (alt revision)
-            0x0B13, // Elite Series 2 Core BLE (newer)
-            0x0B20  // Future Elite revisions
+            0x0B00, // Elite Series 2 wired (launch)
+            0x0B01, // Elite Series 2 accessory variants
+            0x0B02, // Elite Series 2 wired refresh
+            0x0B03, // Elite Series 2 accessory refresh
+            0x0B04, // Elite Series 2 accessory alt
+            0x0B05, // Elite Series 2 Bluetooth (retail)
+            0x0B06, // Elite Series 2 Bluetooth revisions
+            0x0B0A, // Elite Series 2 Core wired
+            0x0B0B, // Elite Series 2 Core accessory
+            0x0B0C, // Elite Series 2 Core accessory alt
+            0x0B0D, // Elite Series 2 Core accessory alt 2
+            0x0B0E, // Elite Series 2 Core Bluetooth
+            0x0B0F, // Elite Series 2 Core Bluetooth alt
+            0x0B20  // Future Elite Series 2 revisions
+        };
+
+        private static readonly HashSet<ushort> KnownJellingPids = new()
+        {
+            0x02E0, // Xbox One Wired Controller
+            0x02FD, // Xbox Wireless Controller (1708) Bluetooth
+            0x02FF, // Xbox Wireless Controller (1708) USB
+            0x0719, // Xbox One Wireless Controller legacy
+            0x0B12, // Xbox Wireless Controller (1914) USB
+            0x0B13, // Xbox Wireless Controller (1914) Bluetooth
+            0x0B1C, // Xbox Wireless Controller (1914) BLE alt
+            0x0B1D  // Xbox Wireless Controller (1914) USB alt
         };
 
         // ====== Layout ======
@@ -423,6 +455,7 @@ namespace XboxControllerTester
 
             currentTransport = await DetectTransportAsync(currentGamepad) ?? ConnTransport.Unknown;
             UpdateBorderByTransport();
+            UpdateProviderEvidence(currentGamepad);
             _ = QuickClassifyAsync();
         }
         private async Task<ConnTransport?> DetectTransportAsync(Gamepad gp)
@@ -443,8 +476,8 @@ namespace XboxControllerTester
         private void StartWatchers()
         {
             StopWatchers();
-            _watch05 = DeviceInformation.CreateWatcher(_hidSelector05);
-            _watch06 = DeviceInformation.CreateWatcher(_hidSelector06);
+            _watch05 = DeviceInformation.CreateWatcher(_hidSelector05, _hidAdditionalProperties);
+            _watch06 = DeviceInformation.CreateWatcher(_hidSelector06, _hidAdditionalProperties);
 
             _watch05.Added += Watch05_Added;
             _watch05.Removed += Watch05_Removed;
@@ -491,11 +524,60 @@ namespace XboxControllerTester
             return vidOk && pidOk;
         }
 
+        private bool TryResolveVidPid(DeviceInformation di, out ushort vid, out ushort pid)
+        {
+            vid = 0; pid = 0;
+            if (di == null) return false;
+
+            if (TryGetVidPid(di.Id ?? string.Empty, out vid, out pid))
+                return true;
+
+            try
+            {
+                if (di.Properties != null)
+                {
+                    if (di.Properties.TryGetValue("System.Devices.DeviceInstanceId", out object instObj) && instObj is string instStr)
+                        if (TryGetVidPid(instStr, out vid, out pid))
+                            return true;
+
+                    if (di.Properties.TryGetValue("System.Devices.HardwareIds", out object hwObj))
+                    {
+                        switch (hwObj)
+                        {
+                            case IEnumerable<string> list:
+                                foreach (var entry in list)
+                                    if (TryGetVidPid(entry, out vid, out pid))
+                                        return true;
+                                break;
+                            case IEnumerable<object> objList:
+                                foreach (var entry in objList)
+                                    if (entry is string s && TryGetVidPid(s, out vid, out pid))
+                                        return true;
+                                break;
+                            case string single:
+                                if (TryGetVidPid(single, out vid, out pid))
+                                    return true;
+                                break;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return false;
+        }
+
+        private static bool ContainsEliteKeyword(string value) =>
+            !string.IsNullOrEmpty(value) && value.IndexOf("Elite", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private static bool IsDurhamPid(ushort pid) => KnownDurhamPids.Contains(pid);
+        private static bool IsJellingPid(ushort pid) => KnownJellingPids.Contains(pid);
+
         private static bool LooksLikeXboxHid(DeviceInformation di)
         {
             if (di == null) return false;
 
-            if (TryGetVidPid(di.Id ?? string.Empty, out ushort vid, out _))
+            if (TryResolveVidPid(di, out ushort vid, out _))
                 if (vid == XBOX_VENDOR_ID) return true;
 
             string name = di.Name ?? string.Empty;
@@ -507,16 +589,31 @@ namespace XboxControllerTester
             if (di == null) return false;
 
             string name = di.Name ?? string.Empty;
-            if (name.IndexOf("Elite", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (ContainsEliteKeyword(name))
                 return true;
 
-            if (!TryGetVidPid(di.Id ?? string.Empty, out ushort vid, out ushort pid))
+            try
+            {
+                if (di.Properties != null)
+                {
+                    if (di.Properties.TryGetValue("System.ItemNameDisplay", out object displayObj) && displayObj is string displayStr)
+                        if (ContainsEliteKeyword(displayStr))
+                            return true;
+
+                    if (di.Properties.TryGetValue("System.Devices.Aep.ModelId", out object modelObj) && modelObj is string modelStr)
+                        if (ContainsEliteKeyword(modelStr))
+                            return true;
+                }
+            }
+            catch { }
+
+            if (!TryResolveVidPid(di, out ushort vid, out ushort pid))
                 return false;
 
             if (vid != XBOX_VENDOR_ID)
                 return false;
 
-            if (KnownDurhamPids.Contains(pid))
+            if (IsDurhamPid(pid))
                 return true;
 
             try
@@ -530,6 +627,89 @@ namespace XboxControllerTester
             catch { }
 
             return false;
+        }
+
+        private bool TryGetGamepadVidPid(Gamepad gp, out ushort vid, out ushort pid)
+        {
+            vid = 0; pid = 0;
+            if (gp == null) return false;
+
+            try
+            {
+                string provider = GameControllerProviderInfo.GetProviderId(gp);
+                if (!string.IsNullOrEmpty(provider))
+                {
+                    if (TryGetVidPid(provider, out vid, out pid))
+                        return true;
+
+                    try
+                    {
+                        uint rawVid = GameControllerProviderInfo.GetHardwareVendorId(provider);
+                        uint rawPid = GameControllerProviderInfo.GetHardwareProductId(provider);
+                        if (rawVid != 0 || rawPid != 0)
+                        {
+                            vid = (ushort)rawVid;
+                            pid = (ushort)rawPid;
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            return false;
+        }
+
+        private ProductType ClassifyGamepad(Gamepad gp)
+        {
+            if (gp == null) return ProductType.Unknown;
+
+            if (TryGetGamepadVidPid(gp, out ushort vid, out ushort pid))
+            {
+                if (vid == XBOX_VENDOR_ID)
+                {
+                    if (IsDurhamPid(pid))
+                        return ProductType.Durham;
+                    if (IsJellingPid(pid))
+                        return ProductType.Jelling;
+                }
+
+                try
+                {
+                    foreach (var rgc in RawGameController.RawGameControllers)
+                    {
+                        if (rgc.HardwareVendorId == vid && rgc.HardwareProductId == pid)
+                        {
+                            if (IsDurhamRaw(rgc))
+                                return ProductType.Durham;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return ProductType.Unknown;
+        }
+
+        private void UpdateProviderEvidence(Gamepad? gp)
+        {
+            if (gp == null)
+            {
+                _providerHint = ProductType.Unknown;
+                _providerHintAt = DateTimeOffset.MinValue;
+                return;
+            }
+
+            var hint = ClassifyGamepad(gp);
+            _providerHint = hint;
+            _providerHintAt = DateTimeOffset.Now;
+
+            if (hint == ProductType.Durham)
+                _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
+
+            if (hint != ProductType.Unknown)
+                TryPublish(hint);
         }
 
         private void Watch05_Added(DeviceWatcher s, DeviceInformation di)
@@ -607,7 +787,19 @@ namespace XboxControllerTester
         }
 
         private bool IsDurhamRaw(RawGameController rgc)
-        { try { var name = rgc.DisplayName ?? ""; return name.IndexOf("Elite", StringComparison.OrdinalIgnoreCase) >= 0; } catch { return false; } }
+        {
+            try
+            {
+                if (rgc == null) return false;
+
+                if (rgc.HardwareVendorId == XBOX_VENDOR_ID && IsDurhamPid((ushort)rgc.HardwareProductId))
+                    return true;
+
+                var name = rgc.DisplayName ?? string.Empty;
+                return ContainsEliteKeyword(name);
+            }
+            catch { return false; }
+        }
 
         private void TryPublish(ProductType proposal)
         {
@@ -618,10 +810,27 @@ namespace XboxControllerTester
             bool has05 = (now - _lastSeen05) <= PRESENT_HOLD_05 && _hid05JellingIds.Count > 0;
             bool has06 = (now - _lastSeen06) <= PRESENT_HOLD_06 && _hid06DurhamIds.Count > 0;
             bool hasRawDurham = (now - _lastSeenRawDurham) <= PRESENT_HOLD_06;
+            bool hasProvider = (now - _providerHintAt) <= PROVIDER_EVIDENCE_HOLD && _providerHint != ProductType.Unknown;
+
+            if (hasProvider)
+            {
+                if (_providerHint == ProductType.Durham)
+                {
+                    has06 = true;
+                    hasRawDurham = true;
+                }
+                else if (_providerHint == ProductType.Jelling)
+                {
+                    has05 = true;
+                }
+            }
 
             if (!has05 && !has06 && !hasRawDurham) proposal = ProductType.Unknown;
             else if (has06 || hasRawDurham) proposal = ProductType.Durham;
             else if (has05) proposal = ProductType.Jelling;
+
+            if (hasProvider && _providerHint != ProductType.Unknown)
+                proposal = _providerHint;
 
             if (_candType != proposal)
             { _candType = proposal; _candStartedAt = now; _candSeq++; }
@@ -650,7 +859,7 @@ namespace XboxControllerTester
 
             try
             {
-                var d6 = await DeviceInformation.FindAllAsync(_hidSelector06);
+                var d6 = await DeviceInformation.FindAllAsync(_hidSelector06, _hidAdditionalProperties);
                 for (int i = 0; i < d6.Count; i++)
                 {
                     var info = d6[i];
@@ -688,7 +897,7 @@ namespace XboxControllerTester
                     return;
                 }
 
-                var d5 = await DeviceInformation.FindAllAsync(_hidSelector05);
+                var d5 = await DeviceInformation.FindAllAsync(_hidSelector05, _hidAdditionalProperties);
                 for (int i = 0; i < d5.Count; i++)
                 {
                     var info = d5[i];
@@ -720,6 +929,8 @@ namespace XboxControllerTester
             _hid06AsJelling.Clear();
             _lastSeen05 = _lastSeen06 = DateTimeOffset.MinValue;
             _lastSeenRawDurham = DateTimeOffset.MinValue;
+            _providerHint = ProductType.Unknown;
+            _providerHintAt = DateTimeOffset.MinValue;
 
             _ = RunOnUiAsync(() =>
             {
