@@ -662,18 +662,20 @@ namespace XboxControllerTester
             vid = 0; pid = 0;
             if (gp == null) return false;
 
-            bool TryUseRaw(RawGameController? raw)
+            static bool TryUseRaw(RawGameController? raw, out ushort rawVid, out ushort rawPid)
             {
+                rawVid = 0;
+                rawPid = 0;
                 if (raw == null) return false;
                 try
                 {
-                    uint rawVid = raw.HardwareVendorId;
-                    uint rawPid = raw.HardwareProductId;
-                    if (rawVid == 0 && rawPid == 0)
+                    uint vendor = raw.HardwareVendorId;
+                    uint product = raw.HardwareProductId;
+                    if (vendor == 0 && product == 0)
                         return false;
 
-                    vid = (ushort)rawVid;
-                    pid = (ushort)rawPid;
+                    rawVid = (ushort)vendor;
+                    rawPid = (ushort)product;
                     return true;
                 }
                 catch { return false; }
@@ -681,8 +683,12 @@ namespace XboxControllerTester
 
             try
             {
-                if (TryUseRaw(RawGameController.FromGameController(gp)))
+                if (TryUseRaw(RawGameController.FromGameController(gp), out var rawVid, out var rawPid))
+                {
+                    vid = rawVid;
+                    pid = rawPid;
                     return true;
+                }
             }
             catch { }
 
@@ -695,14 +701,21 @@ namespace XboxControllerTester
                     for (int i = 0; i < all.Count; i++)
                     {
                         var raw = all[i];
-                        if (raw != null && raw.User == user && TryUseRaw(raw))
+                        if (raw != null && raw.User == user && TryUseRaw(raw, out var rawVid, out var rawPid))
+                        {
+                            vid = rawVid;
+                            pid = rawPid;
                             return true;
+                        }
                     }
                 }
 
-                if (all.Count == 1)
-                    if (TryUseRaw(all[0]))
-                        return true;
+                if (all.Count == 1 && TryUseRaw(all[0], out var singleVid, out var singlePid))
+                {
+                    vid = singleVid;
+                    pid = singlePid;
+                    return true;
+                }
             }
             catch { }
 
