@@ -423,9 +423,9 @@ namespace XboxControllerTester
             ForceUnknownUi();
         }
         private void RawGameController_Added(object? sender, RawGameController e)
-        { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham); } }
+        { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham, null, false); } }
         private void RawGameController_Removed(object? sender, RawGameController e)
-        { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.MinValue; TryPublish(ProductType.Unknown); } }
+        { if (IsDurhamRaw(e)) { _lastSeenRawDurham = DateTimeOffset.MinValue; TryPublish(ProductType.Unknown, null, false); } }
 
         // ===== Reset counts =====
         private void ResetCounts_Click(object? sender, RoutedEventArgs e) => DoResetCounts();
@@ -728,7 +728,7 @@ namespace XboxControllerTester
                 _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
 
             if (hint != ProductType.Unknown)
-                TryPublish(hint);
+                TryPublish(hint, null, false);
         }
 
         private void Watch05_Added(DeviceWatcher s, DeviceInformation di)
@@ -744,7 +744,7 @@ namespace XboxControllerTester
                 _hid05JellingIds.Add(id);
                 _lastSeen05 = DateTimeOffset.Now;
             }
-            TryPublish(ProductType.Jelling);
+            TryPublish(ProductType.Jelling, null, false);
         }
         private void Watch05_Removed(DeviceWatcher s, DeviceInformationUpdate up)
         {
@@ -754,7 +754,7 @@ namespace XboxControllerTester
                     _lastSeen05 = DateTimeOffset.MinValue;
                 _hid06AsJelling.Remove(up.Id);
             }
-            TryPublish(ProductType.Unknown);
+            TryPublish(ProductType.Unknown, null, false);
         }
         private void Watch06_Added(DeviceWatcher s, DeviceInformation di)
         {
@@ -783,11 +783,11 @@ namespace XboxControllerTester
             if (isDurham)
             {
                 _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
-                TryPublish(ProductType.Durham);
+                TryPublish(ProductType.Durham, null, false);
             }
             else
             {
-                TryPublish(ProductType.Jelling);
+                TryPublish(ProductType.Jelling, null, false);
             }
         }
         private void Watch06_Removed(DeviceWatcher s, DeviceInformationUpdate up)
@@ -802,7 +802,7 @@ namespace XboxControllerTester
                         _lastSeen05 = DateTimeOffset.MinValue;
                 }
             }
-            TryPublish(ProductType.Unknown);
+            TryPublish(ProductType.Unknown, null, false);
         }
 
         private bool IsDurhamRaw(RawGameController rgc)
@@ -877,7 +877,7 @@ namespace XboxControllerTester
         private async Task QuickClassifyAsync()
         {
             foreach (var rgc in RawGameController.RawGameControllers)
-                if (IsDurhamRaw(rgc)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham); return; }
+                if (IsDurhamRaw(rgc)) { _lastSeenRawDurham = DateTimeOffset.Now; TryPublish(ProductType.Durham, null, false); return; }
 
             try
             {
@@ -910,11 +910,11 @@ namespace XboxControllerTester
                     if (isDurham)
                     {
                         _durhamLookaheadUntil = DateTimeOffset.Now + DURHAM_LOOKAHEAD;
-                        TryPublish(ProductType.Durham);
+                        TryPublish(ProductType.Durham, null, false);
                     }
                     else
                     {
-                        TryPublish(ProductType.Jelling);
+                        TryPublish(ProductType.Jelling, null, false);
                     }
                     return;
                 }
@@ -934,13 +934,13 @@ namespace XboxControllerTester
                         _hid05JellingIds.Add(id);
                         _lastSeen05 = DateTimeOffset.Now;
                     }
-                    TryPublish(ProductType.Jelling);
+                    TryPublish(ProductType.Jelling, null, false);
                     return;
                 }
             }
             catch { }
 
-            TryPublish(ProductType.Unknown);
+            TryPublish(ProductType.Unknown, null, false);
         }
 
         private void ForceUnknownUi()
