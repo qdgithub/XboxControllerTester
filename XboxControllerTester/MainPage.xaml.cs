@@ -6,8 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Gaming.Input;
-using Windows.Gaming.Input.Custom;
-using Windows.Gaming.Input.Preview;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Composition;
@@ -630,49 +628,52 @@ namespace XboxControllerTester
             return false;
         }
 
-        private static IGameControllerProvider? TryGetProvider(Gamepad gp)
-        {
-            if (gp == null)
-                return null;
-
-            try
-            {
-                var factory = GameControllerFactoryManager.TryGetFactoryControllerFromGameController(gp);
-                return factory?.Provider;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         private bool TryGetGamepadVidPid(Gamepad gp, out ushort vid, out ushort pid)
         {
             vid = 0; pid = 0;
             if (gp == null) return false;
 
+            bool TryUseRaw(RawGameController? raw)
+            {
+                if (raw == null) return false;
+                try
+                {
+                    uint rawVid = raw.HardwareVendorId;
+                    uint rawPid = raw.HardwareProductId;
+                    if (rawVid == 0 && rawPid == 0)
+                        return false;
+
+                    vid = (ushort)rawVid;
+                    pid = (ushort)rawPid;
+                    return true;
+                }
+                catch { return false; }
+            }
+
             try
             {
-                var provider = TryGetProvider(gp);
-                if (provider != null)
-                {
-                    string providerId = GameControllerProviderInfo.GetProviderId(provider);
-                    if (!string.IsNullOrEmpty(providerId) && TryGetVidPid(providerId, out vid, out pid))
-                        return true;
+                if (TryUseRaw(RawGameController.FromGameController(gp)))
+                    return true;
+            }
+            catch { }
 
-                    try
+            try
+            {
+                var user = gp.User;
+                var all = RawGameController.RawGameControllers;
+                if (user != null)
+                {
+                    for (int i = 0; i < all.Count; i++)
                     {
-                        uint rawVid = GameControllerProviderInfo.GetHardwareVendorId(provider);
-                        uint rawPid = GameControllerProviderInfo.GetHardwareProductId(provider);
-                        if (rawVid != 0 || rawPid != 0)
-                        {
-                            vid = (ushort)rawVid;
-                            pid = (ushort)rawPid;
+                        var raw = all[i];
+                        if (raw != null && raw.User == user && TryUseRaw(raw))
                             return true;
-                        }
                     }
-                    catch { }
                 }
+
+                if (all.Count == 1)
+                    if (TryUseRaw(all[0]))
+                        return true;
             }
             catch { }
 
