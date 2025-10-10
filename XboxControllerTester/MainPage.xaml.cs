@@ -461,24 +461,41 @@ namespace XboxControllerTester
         { await Task.Yield(); try { return gp.IsWireless ? ConnTransport.Bluetooth : ConnTransport.Usb; } catch { return ConnTransport.Unknown; } }
         private void UpdateBorderByTransport()
         {
-            Brush b = BrushTransparent;
-            if (currentGamepad != null)
+            Brush brush;
+
+            if (currentGamepad == null)
+            {
+                brush = BrushTransparent;
+            }
+            else
             {
                 switch (currentTransport)
                 {
                     case ConnTransport.Bluetooth:
-                        b = BrushPurple;
+                        brush = BrushPurple;
                         break;
                     case ConnTransport.Usb:
-                        b = BrushGreen;
+                        brush = BrushGreen;
                         break;
+                    case ConnTransport.Unknown:
                     default:
-                        b = BrushBlue;
+                        brush = BrushBlue;
                         break;
                 }
             }
 
-            _ = RunOnUiAsync(() => gridBorder.BorderBrush = b);
+            _ = RunOnUiAsync(() =>
+            {
+                if (gridBorder == null)
+                {
+                    return;
+                }
+
+                if (!ReferenceEquals(gridBorder.BorderBrush, brush))
+                {
+                    gridBorder.BorderBrush = brush;
+                }
+            });
         }
         public static bool IsRunningOnXbox() =>
             Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily == "Windows.Xbox";
