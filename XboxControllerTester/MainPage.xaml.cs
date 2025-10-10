@@ -820,8 +820,11 @@ namespace XboxControllerTester
             catch { return false; }
         }
 
-        private void TryPublish(ProductType proposal)
+        private void TryPublish(ProductType proposal, object? sender = null, bool fromReset = false)
         {
+            _ = sender;
+            _ = fromReset;
+
             if (DateTimeOffset.Now < _durhamLookaheadUntil && proposal == ProductType.Jelling)
                 proposal = ProductType.Durham;
 
