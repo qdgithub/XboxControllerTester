@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Gaming.Input;
 using Windows.Gaming.Input.Custom;
+using Windows.Gaming.Input.Preview;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Composition;
@@ -629,6 +630,22 @@ namespace XboxControllerTester
             return false;
         }
 
+        private static IGameControllerProvider? TryGetProvider(Gamepad gp)
+        {
+            if (gp == null)
+                return null;
+
+            try
+            {
+                var factory = GameControllerFactoryManager.TryGetFactoryControllerFromGameController(gp);
+                return factory?.Provider;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private bool TryGetGamepadVidPid(Gamepad gp, out ushort vid, out ushort pid)
         {
             vid = 0; pid = 0;
@@ -636,10 +653,11 @@ namespace XboxControllerTester
 
             try
             {
-                string provider = GameControllerProviderInfo.GetProviderId(gp);
-                if (!string.IsNullOrEmpty(provider))
+                var provider = TryGetProvider(gp);
+                if (provider != null)
                 {
-                    if (TryGetVidPid(provider, out vid, out pid))
+                    string providerId = GameControllerProviderInfo.GetProviderId(provider);
+                    if (!string.IsNullOrEmpty(providerId) && TryGetVidPid(providerId, out vid, out pid))
                         return true;
 
                     try
