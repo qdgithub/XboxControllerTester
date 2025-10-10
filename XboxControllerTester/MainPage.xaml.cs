@@ -523,7 +523,7 @@ namespace XboxControllerTester
             return vidOk && pidOk;
         }
 
-        private bool TryResolveVidPid(DeviceInformation di, out ushort vid, out ushort pid)
+        private static bool TryResolveVidPid(DeviceInformation? di, out ushort vid, out ushort pid)
         {
             vid = 0; pid = 0;
             if (di == null) return false;
@@ -572,7 +572,7 @@ namespace XboxControllerTester
         private static bool IsDurhamPid(ushort pid) => KnownDurhamPids.Contains(pid);
         private static bool IsJellingPid(ushort pid) => KnownJellingPids.Contains(pid);
 
-        private static bool LooksLikeXboxHid(DeviceInformation di)
+        private static bool LooksLikeXboxHid(DeviceInformation? di)
         {
             if (di == null) return false;
 
@@ -583,7 +583,7 @@ namespace XboxControllerTester
             return name.IndexOf("Xbox", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private bool LooksLikeDurhamDevice(DeviceInformation di)
+        private bool LooksLikeDurhamDevice(DeviceInformation? di)
         {
             if (di == null) return false;
 
@@ -628,7 +628,7 @@ namespace XboxControllerTester
             return false;
         }
 
-        private bool TryGetGamepadVidPid(Gamepad gp, out ushort vid, out ushort pid)
+        private bool TryGetGamepadVidPid(Gamepad? gp, out ushort vid, out ushort pid)
         {
             vid = 0; pid = 0;
             if (gp == null) return false;
@@ -680,7 +680,7 @@ namespace XboxControllerTester
             return false;
         }
 
-        private ProductType ClassifyGamepad(Gamepad gp)
+        private ProductType ClassifyGamepad(Gamepad? gp)
         {
             if (gp == null) return ProductType.Unknown;
 
