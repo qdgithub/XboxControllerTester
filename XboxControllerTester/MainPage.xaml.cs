@@ -463,8 +463,20 @@ namespace XboxControllerTester
         {
             Brush b = BrushTransparent;
             if (currentGamepad != null)
-                b = currentTransport == ConnTransport.Bluetooth ? BrushPurple :
-                    currentTransport == ConnTransport.Usb ? BrushGreen : BrushBlue;
+            {
+                switch (currentTransport)
+                {
+                    case ConnTransport.Bluetooth:
+                        b = BrushPurple;
+                        break;
+                    case ConnTransport.Usb:
+                        b = BrushGreen;
+                        break;
+                    default:
+                        b = BrushBlue;
+                        break;
+                }
+            }
 
             _ = RunOnUiAsync(() => gridBorder.BorderBrush = b);
         }
