@@ -504,8 +504,11 @@ namespace XboxControllerTester
         private void StartWatchers()
         {
             StopWatchers();
-            _watch05 = DeviceInformation.CreateWatcher(_hidSelector05, _hidAdditionalProperties);
-            _watch06 = DeviceInformation.CreateWatcher(_hidSelector06, _hidAdditionalProperties);
+            // Requesting additional properties on the live watcher triggers a CCW marshaling crash in
+            // WinUI when the handlers hop threads.  We only need the full property bag for the one-shot
+            // refresh paths, so keep the watchers lean here.
+            _watch05 = DeviceInformation.CreateWatcher(_hidSelector05);
+            _watch06 = DeviceInformation.CreateWatcher(_hidSelector06);
 
             _watch05.Added += Watch05_Added;
             _watch05.Removed += Watch05_Removed;
